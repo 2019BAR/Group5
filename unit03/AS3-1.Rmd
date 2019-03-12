@@ -1,0 +1,256 @@
+---
+title: "AS3-1: 數位偵探"
+author: "第 5 組"
+date: "`r Sys.time()`"
+output: 
+  html_document:
+    highlight: pygments
+    theme: flatly
+    css: style.css
+---
+
+```{r results='hide', message=FALSE, warning=FALSE, echo=F}
+# 這些程式碼設定網頁的格式，並安裝、載入一些基本的套件，請大家不要去改動<br>
+rm(list=ls(all=T))
+knitr::opts_chunk$set(comment = NA)
+knitr::opts_knit$set(global.par = TRUE)
+par(cex=0.8)
+options(scipen=20, digits=4, width=90)
+#
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(dplyr, d3heatmap)
+```
+<hr>
+
+犯罪是一個國際關注的問題，但它在不同的國家以不同的方式記錄和處理。 在美國，聯邦調查局（FBI）記錄了暴力犯罪和財產犯罪。 此外，每個城市都記錄了犯罪行為，一些城市發布了有關犯罪率的數據。 伊利諾伊州芝加哥市從2001年開始在線發布犯罪數據。
+
+芝加哥是美國人口第三多的城市，人口超過270萬。在這個作業裡面，我們將關注一種特定類型的財產犯罪，稱為「汽車盜竊」，我們將使用R中的一些基本數據分析來了解芝加哥的汽車盜竊紀錄。請載入文件"data/mvtWeek1.csv"：以下是各欄位的描述：
+
++ `ID`: a unique identifier for each observation
++ `Date`: the date the crime occurred
++ `LocationDescription`: the location where the crime occurred
++ `Arrest`: whether or not an arrest was made for the crime (TRUE if an arrest was made, and FALSE if an arrest was not made)
++ `Domestic`: whether or not the crime was a domestic crime, meaning that it was committed against a family member (TRUE if it was domestic, and FALSE if it was not domestic)
++ `Beat`: the area, or "beat" in which the crime occurred. This is the smallest regional division defined by the Chicago police department.
++ `District`: the police district in which the crime occured. Each district is composed of many beats, and are defined by the Chicago Police Department.
++ `CommunityArea`: the community area in which the crime occurred. Since the 1920s, Chicago has been divided into what are called "community areas", of which there are now 77. The community areas were devised in an attempt to create socially homogeneous regions.
++ `Year`: the year in which the crime occurred.
++ `Latitude`: the latitude of the location at which the crime occurred.
++ `Longitude`: the longitude of the location at which the crime occurred.
+
+<br>
+
+- - -
+
+###  Section-1 Loading the Data
+
+【1.1】How many rows of data (observations) are in this dataset?
+```{r}
+#使用nrow()來得知資料框裡有多少筆紀錄(row)
+D = read.csv("data/mvtWeek1.csv", stringsAsFactors= F)
+nrow(D)
+```
+
+檢查各欄位的資料格式
+```{r}
+#使用str()來顯示資料的結構
+str(D)
+```
+
+類別(Factor) versus 字串(Character)
+
+【1.2】How many variables are in this dataset?
+```{r}
+#使用ncol()來得知資料框裡有多少筆欄位(column)
+ncol(D)
+```
+
+
+【1.3】Using the "max" function, what is the maximum value of the variable "ID"?
+```{r}
+#使用max()來找出ID的最大值為何
+max(D$ID)
+```
+
+
+【1.4】 What is the minimum value of the variable "Beat"?
+```{r}
+#使用min()來找出ID的最小值為何
+min(D$Beat)
+```
+
+
+【1.5】 How many observations have value TRUE in the Arrest variable (this is the number of crimes for which an arrest was made)?
+```{r}
+#使用sum()將條件符合(D$Arrest==TRUE)的數量做加總
+sum(D$Arrest == TRUE)
+```
+
+【1.6】 How many observations have a LocationDescription value of ALLEY?
+```{r}
+#使用sum()將條件符合(D$LocationDescription == "ALLEY")的數量做加總
+sum(D$LocationDescription == "ALLEY")
+
+```
+
+
+<br><br>
+
+- - -
+
+### Section-2 Understanding Dates in R
+
+【2.1】 In what format are the entries in the variable Date?
+
++ Month/Day/Year Hour:Minute
++ Day/Month/Year Hour:Minute
++ Hour:Minute Month/Day/Year
++ Hour:Minute Day/Month/Year
+
+```{r}
+#使用索引符號[]將D$Date的第一筆資料索引出來,以便得知其日期的格式為何
+D$Date[1]
+
+#Answer is: Month/Day/Year Hour:Minute
+```
+
+
+【2.2】 What is the month and year of the median date in our dataset? 
+```{r}
+#由於D$Date原始的資料型態為chr(字元),無法直接使用median()函數找出中位數,故需先使用as.POSIXct()函數將D$Date的資料型態轉換為median()函數可判別的日期格式
+ts = as.POSIXct(D$Date, format="%m/%d/%y %H:%M")
+median(ts)
+
+#Answer is: 05 & 2006
+```
+
+【2.3】 In which month did the fewest motor vehicle thefts occur?
+```{r}
+#使用format()將日期轉換為字串,並回傳題目所需的"月份"資料(%m)
+#使用table()將回傳的月份做數量統計
+#使用sort()將統計資料由小到大做排序
+sort(table(format(ts,"%m")))
+
+#Answer is: 02
+```
+
+【2.4】 On which weekday did the most motor vehicle thefts occur?
+```{r}
+#同上,"%u"代表回傳的是"星期幾"的資料
+sort(table(format(ts,"%u")))
+
+#Answer is: 5
+```
+
+【2.5】 Which month has the largest number of motor vehicle thefts for which an arrest was made?
+```{r}
+#同上,ts[D$Arrest]代表索引出"被逮捕"的資料
+sort(table(format(ts[D$Arrest],"%m")))
+
+#Answer is: 01
+```
+
+<br><br>
+
+- - -
+
+### Section-3 Visualizing Crime Trends
+
+【3.1】 
+(a) In general, does it look like crime increases or decreases from 2002 - 2012? (b) In general, does it look like crime increases or decreases from 2005 - 2008? (c) In general, does it look like crime increases or decreases from 2009 - 2011?
+```{r}
+#使用hist()將日期資料做直方圖,"freq = T"代表將y的資料以"次數"(frequency)做計算
+
+hist(ts, 'year',las=2, freq = T, main="Histogram of the crime", xlab="Year")
+
+#Answer is :(a)decreases (b)decreases (c)increases
+```
+
+
+
+【3.2】 Does it look like there were more crimes for which arrests were made in the first half of the time period or the second half of the time period?
+```{r}
+#TRUE代表符合(ts > "2007-01-01")條件的數量(也就是下半年)
+table(ts > "2007-01-01")
+
+#Answer is: The first half of the time period
+```
+
+【3.3】 For what proportion of motor vehicle thefts in 2001 was an arrest made?
+```{r}
+#使用 prop.table()函數計算table資料(被逮捕的年份加總資料)的比例
+#.[2,1]是指索引出第二筆紀錄(TRUE)、第一欄(2001)的資料
+#round(3)是指取小數點以下第3位
+
+table(D$Arrest, format(ts,'%Y')) %>% prop.table(2) %>% round(3)  %>% .[2,1]
+```
+
+【3.4】 For what proportion of motor vehicle thefts in 2007 was an arrest made?
+```{r}
+#同上
+table(D$Arrest, format(ts,'%Y')) %>% prop.table(2) %>% round(3) %>% .[2,7]
+
+```
+
+【3.5】 For what proportion of motor vehicle thefts in 2012 was an arrest made?
+```{r}
+#同上
+table(D$Arrest, format(ts,'%Y')) %>% prop.table(2) %>% round(3) %>% .[2,12]
+```
+
+<br><br>
+
+- - -
+
+### Section-4 Popular Locations
+
+【4.1】 Which locations are the top five locations for motor vehicle thefts, excluding the "Other" category? You should select 5 of the following options.
+
+```{r}
+#使用tail()函數將排序後的table資料取最後6個
+#使用.[-4]將第4筆資料(Other)刪除
+#使用names()將符合條件資料的名稱找出來
+
+top5=table(D$LocationDescription) %>% sort %>% tail(6) %>% .[-4]%>% names()
+top5
+
+
+```
+
+【4.2】 How many observations are in Top5?
+```{r}
+#同上,使用sum()將table的資料做加總
+table(D$LocationDescription) %>% sort %>% tail(6) %>% .[-4] %>% sum()
+
+```
+
+【4.3】 One of the locations has a much higher arrest rate than the other locations. Which is it? 
+```{r}
+#"%in%"是將前面的欄位對照後面的欄位,如果有符合後面的欄位就會呈現TRUE
+#使用sum()函數將TRUE(=1)作加總,並用subset()將符合條件的資料篩選出來
+TOP5 = subset(D, LocationDescription %in% top5)
+tapply(TOP5$Arrest, TOP5$LocationDescription, mean) %>% sort
+
+#Answer is: GAS STATION
+```
+
+【4.4】 On which day of the week do the most motor vehicle thefts at gas stations happen?
+```{r}
+#同2.5
+table(format(ts[D$Location == "GAS STATION"], '%u')) %>% sort
+
+#Answer is: 6
+```
+
+【4.5】 On which day of the week do the fewest motor vehicle thefts in residential driveways happen?
+```{r}
+#同上
+table(format(ts[D$Location == "DRIVEWAY - RESIDENTIAL"], '%u')) %>% sort
+
+#Answer is: 6
+```
+
+
+<br><br><br>
+
+
