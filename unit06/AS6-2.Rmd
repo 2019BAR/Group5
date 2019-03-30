@@ -1,0 +1,200 @@
+---
+title: 第六單元：基礎統計 with R
+author: 中山大學管理學院 第五組
+date: "`r Sys.time()`"
+output: 
+  html_document:
+    highlight: pygments
+    theme: flatly
+    css: style.css
+---
+
+```{r results='hide', message=FALSE, warning=FALSE, echo=F}
+# 這些程式碼設定網頁的格式，並安裝、載入一些基本的套件，請大家不要去改動<br>
+rm(list=ls(all=T))
+knitr::opts_chunk$set(comment = NA)
+knitr::opts_knit$set(global.par = TRUE)
+par(cex=0.8)
+options(scipen=20, digits=5, width=80)
+if(!require(pacman)) install.packages("pacman")
+library(magrittr) # need to run every time you start R and want to use %>%
+library(dplyr) 
+```
+<hr>
+
+
+### <span style="font-size:22px">`r "\U1F5FF"` 問題討論：</span>  {data-height=250}
+<p class="qiz">
+【A.選擇方法】<br>
+&emsp;■ 我們為甚麼需要隨機變數？ 什麼時候我們需要用到隨機變數？<br> 
+#商場中有許多時候是不確定且需要估計的，藉由隨機變數可進行抽樣調查推算母體期望分布<br> 
+&emsp;■ 隨機變數沒有固定的值，那我們要如何做計算呢？<br> 
+#利用機率分布的方式計算，我們可以透過圖形或數學函數表示隨機變數的分布<br> 
+&emsp;■ 我們可以用直方圖或數值標記來估計噴發時間落在某一區間的機率嗎？<br> 
+#可以<br> 
+&emsp;■ 直方圖(histogram)也可以當作一種模型嗎？ 數值標記(rug)呢？<br> 
+#可以，因為直方圖可以用來描述隨機變數分布狀況;在樣本數夠大進而滿足中央極限定理(CLT)時可以<br> 
+&emsp;■ 直方圖和平滑模型哪一個比較適合用來表示噴發時間的分布？ 為甚麼？<br> 
+#平滑模型，因為時間為連續型變數，每個時間單點機率為0，所以必須採用平滑模型對曲線下面積進行積分以計算發生機率<br> 
+&emsp;■ 用數值標記來預測噴發時間會比用直方圖「準」嗎？ 「準」是什麼意思呢？<br> 
+#準若定義為準確發生時間，則使用數值標記為佳；準若定義為在一區間範圍內發生，則使用直方圖為佳<br> 
+<br>
+【B.調整參數】調整一下模型參數的滑桿 ...<br>
+&emsp;■ 你覺得最合適的直方圖欄數(`support/binwidth`)是？ 為甚麼？<br> 
+#16，直方圖分布較為平滑，鄰近兩直方沒有過大差異，較不易在樣本數相對小的時候，受單點機率密度過高影響使模型趨於不平滑<br>
+&emsp;■ 最合適的平滑模型頻寬(`bandwidth`)呢？<br> 
+#欄數設定為16，頻寬設定為0.5<br>
+&emsp;■ 調高欄寬和頻寬會讓模型變複雜，還是變簡單呢？<br> 
+#皆為變簡單<br>
+&emsp;■ 模型越複雜，它跟實際值之間的誤差是越大、還是越小？<br> 
+#越小<br>
+&emsp;■ 那麼，越複雜的模型就會越準，對嗎？<br> 
+#不一定，應分為兩種狀況:
+若要更強解釋力，越複雜的模型解釋力越高;若要有較好的預測能力，則應使用較為簡易的模型為佳
+<br> 
+<br>
+【C.建立模型、估計機率】<br>
+請從課堂筆記的程式碼找出來 ... <br> 
+&emsp;■ 從變數向量(`D`)求出機率密度曲線(`DEN`)<br>
+&emsp;■ 將機率密度曲線(`DEN`)轉換成機率密度函數(`PDF`)<br>
+&emsp;■ 對機率密度函數(`PDF`)做積分，算出機率(`PROB`)<br>
+這三行程式，然後...<br>
+&emsp;■ 將頻寬調整參數(`adjust`)設為`1`，算出「等待時間」落在80到90之間的機率<br> 
+#0.2685065<br>
+&emsp;■ 將頻寬調整參數設為`0.5`，算出等待時間落在80到90之間的機率<br> 
+#0.282745<br>
+&emsp;■ 算出來的機率比較高的就是比較好的模型，對嗎？ 為甚麼？<br> 
+#不對，不應該以機率高低作為判斷模型好壞的標準<br>
+<br>
+【D.預測與決策】<br>
+假設有一個賭局，你可以花30元選定一個連續60秒的時段，如果老忠實下一次的噴發時間落在你指定的區間，你就可以贏到100元；請你使用頻寬為`0.5`的平滑密度模型 ...<br>
+&emsp;■ 決定要不要參加這個賭局<br> 
+#要<br>
+&emsp;■ 如果你參加的話，你要把噴發時間設定在哪一個區間呢？<br> 
+#3.8分鐘-4.8分鐘<br>
+&emsp;■ 你設在這個區間的話，參加這個賭局的期望值是？<br> 
+#因為期望報酬為100*.48-30=18<br>
+<br>
+假如賭場老闆從零開始把每10秒鐘設為一個區間，每個區間的賭金是五塊錢 ...<br>
+&emsp;■ 你要怎麼押注，才能獲得最高的期望值呢？<br>
+#計算每個區間的機率，再加總選定區間的機率，計算總和期望報酬最高者的次數。<br>
+&emsp;■ 你的賭金和期望值各是多少？<br>
+![](P2.png)
+![](P1.png)
+
+&emsp;# 8次x5$ = 40元，期望值為13.1748 （如上圖，計算程式附在下面）
+<br>
+將獲利的期望值和賭金的比值稱為「期望投資報酬率」 ...<br>
+&emsp;■ 「最大期望投資報酬率」和「最大期望報酬」的投資策略是一樣的嗎？<br>
+#不一樣 <br>
+&emsp;■ 你認為哪一個策略目標比較好呢？ 為什麼？<br>
+#以本題題幹為前提，最大期望報酬策略比較好，因為實拿獲利較高；若題目假設改變，例如:獎金、賭金條件改變，則無法確定何種策略為佳<br>
+<br>
+</p class="qiz">
+
+```{r}
+Waits <- faithful$waiting / 10
+
+summary(Waits)
+
+# Frame
+par(cex = 0.7)
+par(family='MicrosoftYaHei')
+plot(0,0,xlim=c(4,10),ylim=c(0,1.1),xlab="等待時間(10分鐘)", 
+     ylab="密度 or (累計)機率", main="分布、機率與密度")
+abline(h=1, col='lightgray', lwd=0.25, lty=2)
+
+
+# Empirical PDF
+rug(Waits)
+# Empirical CDF
+plot(ecdf(Waits), cex=0, verticals=T, lwd=2, col='darkgray', add=T)
+## add = T 會將該圖層加在原先的圖上 , 不會額外再重新繪圖
+
+
+# Histogram PDF
+Bins = 20                             # no. bins
+bx = seq(min(Waits), max(Waits), length= (Bins+1) ) # break sequence 
+hist(Waits, col="#B3FFFF7F", border="white", ylim=c(0,1.1),
+     freq=F, breaks=bx, add=T)
+abline(h=0, col='lightgray', lwd=0.25)
+# Histogram CDF
+adj = (bx[2] - bx[1])/2
+steps = stepfun(bx-adj, c(0, sapply(bx, function(b) mean(Waits <= b))))
+plot(steps, cex=0, col='#33CC337F', lwd=3, lty=1, add=T)
+
+# Smooth PDF
+Adjust = 0.5    # bandwidth adjustment
+DEN = density(Waits, adjust = Adjust)
+lines(DEN, col='gold', lwd=3)
+# Smooth CDF
+PDF = approxfun(DEN$x, DEN$y, yleft=0, yright=0)
+x = seq(4,10,1)
+y = sapply(x, function(i) integrate(PDF, -Inf, i)$value)
+lines(x, y, col='red', lwd=3, lty=2) 
+
+# Mark Range
+x1 = 8; x2 = 9
+rect(x1,-0.1,x2,1.2,col= rgb(0,1,0,alpha=0.2),border=NA)
+# x = seq(x1, x2, length=100)
+# polygon(c(x, x2, x1),  c(PDF(x), 0, 0), col="#FF99003F", border=NA)
+# Calculate Probability
+(integrate(PDF, x1, x2)$value)
+
+
+###############################
+rbinom(1000000, 1000, 0.2) %>% hist(breaks=100,freq=F)
+curve(dnorm(x,mean=200,sd=sqrt(160)), col='red', lwd=2, add=T) 
+
+```
+```{r}
+faithful %>% head(10)
+D = faithful$eruptions  # copy to a short name
+summary(faithful)
+
+adj = (bx[2] - bx[1])/2
+steps = stepfun(bx-adj, c(0, sapply(bx, function(b) mean(D <= b))))
+
+
+# Smooth PDF
+Adjust = 1    # bandwidth adjustment
+DEN = density(D, adjust = Adjust) #如果沒有調整adjust，原本設定就是1
+
+# Smooth CDF
+PDF = approxfun(DEN$x, DEN$y, yleft=0, yright=0)
+x = seq(1,6,0.1)
+y = sapply(x, function(i) integrate(PDF, -Inf, i)$value)
+
+
+# Mark Range
+x1 = 3.8; x2 = 4.8
+
+# x = seq(x1, x2, length=100)
+# polygon(c(x, x2, x1),  c(PDF(x), 0, 0), col="#FF99003F", border=NA)
+# Calculate Probability
+(integrate(PDF, x1, x2)$value)
+
+###############################
+# 第4題計算期望值程式
+EveryProb <- rep(0,31)
+names(EveryProb) <- seq(1,6,(1/6))
+j <- 1
+for ( i in seq(1,6,(1/6)) ) {
+  EveryProb[j] <- integrate(PDF, i, (i+(1/6)))$value
+  j <- j + 1
+}
+EveryProb
+
+EveryProb <- sort(EveryProb, decreasing = T)
+
+E <- rep(0,31)
+names(E) <- c(1:31)
+for ( i in 1:31 ) {
+  
+  E[i] <- ( 100 * (sum(EveryProb[1:i])) ) - ( 5*i )
+  
+}
+E
+max(E)
+EveryProb[1:8] %>% sum
+```
