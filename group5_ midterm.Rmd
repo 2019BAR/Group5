@@ -1,0 +1,738 @@
+---
+title: "Midterm Project - Olist Store Case Analysis"
+author: "Group 5 - 林嘉羽, 駱詠升, 郭懷謙, 林庭葦, 伍婉婷, 王志堯"
+date: "2019/4/30"
+output: 
+  html_document:
+    highlight: pygments
+    theme: flatly
+    css: style.css
+---
+
+
+<hr>
+
+### 【Agenda】
+##### / Part I   - 前置準備
+##### / Part II  - 分析產品在特定月份佔全年度的銷售比例
+##### / Part III - 巴西物流分析
+##### / Part IV  - 購買分析
+##### / Part V   - 下訂時間與品項分析
+##### / 附錄     - 下單至購買被確認的等待時間對上訂單金額的關係
+
+<hr>
+
+
+### 【Part I】前置準備
+<hr>
+##### 1. 載入本次會用到的 packages
+<hr>
+```{r echo = T, results = 'hide', message=FALSE, warning=FALSE}
+
+library(dplyr)
+library(ggplot2)
+library(d3heatmap)
+library(ROCR)
+library(googleVis)
+library(chorddiag)
+library(plotly)
+library(maps)
+library(brazilmaps)
+library(ggmap)
+library(mapproj)
+
+```
+<hr>
+##### 2. 讀取檔案
+<hr>
+####### - 由於是合併多人的筆記檔案，因此額外備份了讀進來的 data.frame，以便後續程式碼連接。
+<hr>
+```{r}
+
+setwd("/Users/allenlin/Documents/學校資料/2B_統計、機率與商業數據分析/Group5/Brazil")
+Customers <- read.csv("olist_customers_dataset.csv", stringsAsFactors = F)
+Geolocation <- read.csv("olist_geolocation_dataset.csv", stringsAsFactors = F)
+Items <- read.csv("olist_order_items_dataset.csv", stringsAsFactors = F)
+Payments <- read.csv("olist_order_payments_dataset.csv", stringsAsFactors = F)
+Reviews <- read.csv("olist_order_reviews_dataset.csv", stringsAsFactors = F)
+Orders <- read.csv("olist_orders_dataset.csv", stringsAsFactors = F)
+Products <- read.csv("olist_products_dataset.csv", stringsAsFactors = F)
+Sellers <- read.csv("olist_sellers_dataset.csv", stringsAsFactors = F)
+Trans <- read.csv("product_category_name_translation.csv", stringsAsFactors = F)
+
+C2 <- Customers
+G2 <- Geolocation
+I2 <- Items
+PA2 <- Payments
+R2 <- Reviews
+O2 <- Orders
+PR2 <- Products
+S2 <- Sellers
+T2 <- Trans
+
+```
+<hr>
+### 【Part II】分析產品在特定月份佔全年度的銷售比例
+<hr>
+##### 1. 將資料表中產品種類的葡萄牙文換成英文
+<hr>
+```{r}
+temp <- full_join(Products, Trans, by = "product_category_name" ) %>% .[,-2] %>% .[,c(1,9,2:8)]
+```
+<hr>
+##### 2. 合併表格
+<hr>
+```{r}
+aa = select(Orders,order_id,order_purchase_timestamp)
+bb = select(Items,order_id,price)
+cc <- full_join(aa, bb, by = "order_id" )
+dd = full_join(Items, cc , by = "order_id" )
+ee <- full_join(dd,temp,by = "product_id" )
+all_data = mutate(ee,when = format(as.POSIXct(dd$order_purchase_timestamp),"%H"))
+all_data_2017 <- all_data[format(as.POSIXct(all_data$order_purchase_timestamp), "%Y") == "2017", ]
+```
+<hr>
+##### 3. 將 all_data 的資料分別取出一至十二月份資料
+<hr>
+```{r}
+Jan=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="01"
+Feb=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="02"
+Mar=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="03"
+Apr=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="04"
+May=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="05"
+Jun=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="06"
+Jul=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="07"
+Aug=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="08"
+Sep=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="09"
+Oct=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="10"
+Nov=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="11"
+Dec=format(as.POSIXct(all_data_2017$order_purchase_timestamp),"%m")=="12"
+
+my_choice = table(all_data_2017$product_category_name_english) %>% sort() %>% .[. > 100] %>% names()
+all_data_by_choice = all_data_2017[all_data_2017$product_category_name_english %in% my_choice, ]
+all_data_by_choice$product_category_name_english = all_data_by_choice$product_category_name_english %>% as.character()
+
+Jan_data = all_data_by_choice[Jan,]
+Feb_data = all_data_by_choice[Feb,]
+Mar_data = all_data_by_choice[Mar,]
+Apr_data = all_data_by_choice[Apr,]
+May_data = all_data_by_choice[May,]
+Jun_data = all_data_by_choice[Jun,]
+Jul_data = all_data_by_choice[Jul,]
+Aug_data = all_data_by_choice[Aug,]
+Sep_data = all_data_by_choice[Sep,]
+Oct_data = all_data_by_choice[Oct,]
+Nov_data = all_data_by_choice[Nov,]
+Dec_data = all_data_by_choice[Dec,]
+```
+<hr>
+##### 4. 把一月和四月的缺漏項補起來
+<hr>
+```{r}
+temp <- 0
+names(temp) <- "kitchen_dining_laundry_garden_furniture"
+Jan_data_ = table(Jan_data$product_category_name_english) %>% c(., temp) %>% .[sort(names(.))]
+
+temp <- 0
+names(temp) <- "agro_industry_and_commerce"
+Apr_data_ = table(Apr_data$product_category_name_english) %>% c(., temp) %>% .[sort(names(.))]
+```
+<hr>
+##### 5. 建立特定月份 / 整年度的各產品品項表格
+<hr>
+```{r}
+all_data_ = 
+cbind(
+(Jan_data_)/table(all_data_by_choice$product_category_name_english),
+(table(Feb_data$product_category_name_english) / table(all_data_by_choice$product_category_name_english)),
+(table(Mar_data$product_category_name_english) / table(all_data_by_choice$product_category_name_english)),
+(Apr_data_)/table(all_data_by_choice$product_category_name_english),
+(table(May_data$product_category_name_english) / table(all_data_by_choice$product_category_name_english)),
+(table(Jun_data$product_category_name_english) / table(all_data_by_choice$product_category_name_english)),
+(table(Jul_data$product_category_name_english) / table(all_data_by_choice$product_category_name_english)),
+(table(Aug_data$product_category_name_english) / table(all_data_by_choice$product_category_name_english)),
+(table(Sep_data$product_category_name_english) / table(all_data_by_choice$product_category_name_english)),
+(table(Oct_data$product_category_name_english) / table(all_data_by_choice$product_category_name_english)),
+(table(Nov_data$product_category_name_english) / table(all_data_by_choice$product_category_name_english)),
+(table(Dec_data$product_category_name_english) / table(all_data_by_choice$product_category_name_english)))
+```
+
+```{r}
+gplot = ggplot(all_data_2017,aes(x=when,fill=product_category_name_english))+
+  geom_bar(position="fill")
+ggplotly(gplot)
+```
+<hr>
+##### 6.1. 特定月份 / 整年度的各產品品項熱圖 - 藍色版本
+<hr>
+```{r}
+colnames(all_data_) =c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+as.table(all_data_) %>% 
+  as.data.frame.matrix %>% 
+  d3heatmap(F,F,col=colorRamp(c('lightyellow','skyblue','darkblue')))
+```
+
+```{r}
+all_data_2017$order_purchase_timestamp = as.POSIXct(all_data_2017$order_purchase_timestamp, format = "%Y-%m-%d %T")
+all_data_2017 = mutate(all_data_2017, bym = format(all_data_2017$order_purchase_timestamp, "%m"))
+all_data_2017 = mutate(all_data_2017, byday = format(all_data_2017$order_purchase_timestamp, "%m-%d"))
+```
+<hr>
+##### 6.2. 特定月份 / 整年度的各產品品項熱圖 - 橘色版本
+<hr>
+```{r}
+colnames(all_data_) =c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+as.table(all_data_) %>% 
+  as.data.frame.matrix %>% 
+  d3heatmap(F,F,col=colorRamp(c('lightyellow','wheat','orangered')))
+```
+<hr>
+##### 7. 畫出月份趨勢圖
+<hr>
+```{r}
+ggplot(all_data_2017,aes(x=bym, fill = bym))+geom_bar()+xlab("各個月份")+ylab("產品訂單數量")+ theme(text=element_text(family="黑體-繁 中黑", size=14))+
+theme_light()
+```
+<hr>
+##### 8. 畫出十一月每一天的趨勢圖
+<hr>
+```{r}
+ggplot(all_data_2017[all_data_2017$bym=="11",],aes(x=byday,fill=byday))+geom_bar()+xlab("十一月份的每一天")+ylab("產品訂單數量")+ theme(text=element_text(family="黑體-繁 中黑", size=14))+theme_light()
+```
+
+
+
+<hr>
+### 【Part III】巴西物流分析
+<hr>
+##### 0. 將備用資料取出來，初始化 data.frame
+<hr>
+####### - 同時將訂單資料中的時間資料格式轉換為 POSIXct 格式。
+<hr>
+```{r}
+
+Customers <- C2
+Geolocation <- G2
+Items <- I2
+Payments <- PA2
+Reviews <- R2
+Orders <- O2
+Products <- PR2
+Sellers <- S2
+Trans <- T2
+
+for ( i in 4:8 ) {
+  Orders[,i] <- as.POSIXct(Orders[,i], format = "%Y-%m-%d %T")
+}
+
+# %T = %H:%M:%S
+
+```
+<hr>
+##### 1. 整理 data.frame
+<hr>
+####### - 補上單筆訂單的總價
+####### - 將訂單金額、支付方式的表格 Payments併進訂單表 Orders
+####### - 補上 waiting_time : 等待訂單被確認所花費的時間
+####### - 補上 logis_time : 顧客下單後至收到商品所花費的物流時間
+####### - 將產品類別翻譯為英文
+####### - 將 Orders 併進 Items 表格之中
+####### - 補上 When : 是在一天內的哪一個小時做交易
+####### - 補上 Weekday : 是在一週間的星期幾做交易
+####### - 將 Products 併進 Items 表格之中
+<hr>
+```{r}
+
+Payments <- group_by(Payments, order_id) %>% summarise(., Total_payments = sum(payment_value) ) %>%
+  full_join(Payments, ., by = "order_id")
+
+Orders <- left_join(Orders, Payments, by = "order_id")
+
+Orders <- difftime(Orders[,5],Orders[,4], units = "days") %>% mutate(Orders, waiting_time = .)
+Orders <- difftime(Orders[,7],Orders[,4], units = "days") %>% mutate(Orders, logis_time = .)
+
+Products <- full_join(Products, Trans, by = "product_category_name" ) %>% .[,-2] %>% .[,c(1,9,2:8)]
+
+Items <- left_join(Items, Orders, by = "order_id")
+Items$When <- Items$order_purchase_timestamp %>% format(., "%H")
+Items$Weekday <- Items$order_purchase_timestamp %>% weekdays(.)
+
+Items <- full_join(Items, Products, by = "product_id")
+
+UniqueOrders <- Orders[!duplicated(Orders$order_id),] # 附錄要用的
+```
+<hr>
+##### 2. 利用產品類別來篩選樣本
+<hr>
+####### - 另建一個新的表格 Items_filtered 來存篩選過後的樣本
+####### - 篩選的條件為「只留下該商品類別總訂單超過 100 筆的樣本」
+####### - 目的是希望在做接下來的類別分析時
+####### - 樣本數量不會小到讓人對於結果存疑
+<hr>
+```{r}
+my_filter <- table(Items$product_category_name_english) %>% sort() %>% .[. > 100] %>% names()
+Items_filtered <- Items[(Items$product_category_name_english %in% my_filter), ]
+```
+<hr>
+####### - 繪製熱圖
+####### - 以一天內 24 小時的每小時為區間，依每類別訂單數量繪製熱圖
+####### - 用來繪製的數據參照是該小時該類別的訂單數相較於每小時平均是其幾倍
+####### - 並以標準差做熱圖的 row 排序，由上至下為標準差低到高
+####### - 意謂著上方的類別為整天訂單數表現較為穩定者，下方反之
+<hr>
+```{r}
+Table_cat_when <- table(Items_filtered$product_category_name_english, Items_filtered$When)
+Table_perform <- (Table_cat_when / rowMeans(Table_cat_when))
+Table_perform[match((apply(Table_perform, 1, sd) %>% sort %>% names()),rownames(Table_perform)),] %>%
+  as.data.frame.matrix %>% 
+  d3heatmap(F,F,col=colorRamp(c('seagreen','lightyellow','red')))
+```
+<hr>
+##### 3.1. 物流資料探勘及表格整理
+<hr>
+####### - 平均物流天數為 12.48 天
+<hr>
+```{r}
+mean(Items$logis_time, na.rm = T)
+```
+<hr>
+####### - 因為接下來是要分析、繪製物流相關的資料
+####### - 因此要先將 Customers 以及 Sellers 表都併到 Items 表之中
+####### - 同時新增變數 logistic : 賣家所在州 - 買家所在州
+<hr>
+```{r}
+Items <- left_join(Items, Customers, by = "customer_id") %>% left_join(., Sellers, by = "seller_id")
+
+Items$logistic <- paste(Items$seller_state, " - ", Items$customer_state, sep = "")
+```
+<hr>
+####### - 列出熱門路線排行 Top 30
+<hr>
+```{r}
+table(Items$logistic) %>% sort(., decreasing = T) %>% head(., 30)
+```
+<hr>
+####### - 先整理物流狀態的表格
+####### - 將物流的州移動路線整理成彙總表
+<hr>
+```{r}
+flow_table <- table(Items$seller_state, Items$customer_state)
+flow_table <- rbind(flow_table, 0) %>% rbind(., 0) %>% rbind(., 0) %>% rbind(., 0)
+rownames(flow_table)[24:27] <- setdiff(colnames(flow_table), rownames(flow_table))
+```
+<hr>
+##### 3.2. 各路線物流訂單排行 bar chart
+<hr>
+####### - 以賣家地區為根據計算訂單量，並降冪排列
+<hr>
+```{r}
+rowSums(flow_table) %>% sort(., decreasing = F) %>%
+  barplot(., xlab = "Amount of Orders", ylab = "States",
+          horiz = T, col = "Brown", main = "The distribution of Orders",
+          cex.lab = 1, cex.axis = 0.8 )
+```
+<hr>
+##### 3.3. 各州物流流向 Chorddiag 環狀圖
+<hr>
+####### - 原先是取出前八名來做進一步的分析 (Chorddiag function 的上限)
+####### - 爾後由於觀察到第七名開始訂單急劇下降，取出前六名來做更進一步的分析
+<hr>
+```{r}
+Top8 <- rowSums(flow_table) %>% sort(., decreasing = T) %>% .[1:8] %>% names()
+Top6 <- Top8[1:6]
+
+flow_table <- flow_table[rownames(flow_table) %in% Top6, colnames(flow_table) %in% Top6]
+flow_table <- as.table(flow_table)
+flow_table %>% as.data.frame.matrix() %>% as.matrix() %>% round(3) %>% 
+  chorddiag(.)
+```
+<hr>
+##### 3.4. 巴西買賣家地區熱圖
+<hr>
+####### - 全部的地區都有繪製，無篩選訂單量
+####### - 且為了讓指數成長的各地區訂單量不要影響到圖型表現而取了 log()
+####### - 縱軸是賣家 / 橫軸是買家
+<hr>
+```{r}
+table(Items$seller_state, Items$customer_state) %>% + 1 %>% log() %>%
+  as.data.frame.matrix %>% 
+  d3heatmap(F,F,col=colorRamp(c('lightyellow','wheat','orangered')),
+            labRow = paste("From_", rownames(.), sep =""),
+            labCol = paste("To_", colnames(.), sep =""))
+```
+<hr>
+##### 3.5. 巴西買賣家地區分佈地圖
+<hr>
+####### - 先自 map_data 中取出世界地圖座標資料，再篩出巴西的資料
+####### - 在 Items 表格上補上地理資訊資料
+####### - Both 買家以及賣家資料
+####### - 利用 zip code 去對應所在座標
+####### - 並將緯度超越國界的去除
+<hr>
+```{r}
+Brazil <- map_data("world") %>% filter(region == "Brazil")
+Brazil$group <- as.factor(Brazil$group)
+
+colnames(Geolocation)[1] <- "customer_zip_code_prefix"
+Geolocation <- Geolocation[!duplicated(Geolocation$customer_zip_code_prefix), ]
+Items <- left_join(Items, Geolocation[,1:3], by = "customer_zip_code_prefix")
+colnames(Items)[c(40,41)] <- c("cus_lat","cus_lng")
+
+colnames(Geolocation)[1] <- "seller_zip_code_prefix"
+Items <- left_join(Items, Geolocation[,1:3], by = "seller_zip_code_prefix")
+colnames(Items)[c(42,43)] <- c("sel_lat","sel_lng")
+
+Items_InBrazil <- Items[(Items$cus_lat <= 5.27438888),]
+Items_InBrazil <- Items_InBrazil[(Items_InBrazil$sel_lat <= 5.27438888),]
+```
+<hr>
+####### - 繪製賣家分佈地圖
+<hr>
+```{r}
+ggplot() +
+  geom_polygon(data = Brazil, aes(x=long, y = lat, group = group), fill="orange", alpha = 0.2) +
+  geom_point(data= Items_InBrazil, aes(x = sel_lng, y = sel_lat, color = seller_state), size = 0.2, alpha = 0.3) +
+  theme_void()
+```
+<hr>
+####### - 繪製買家分佈地圖
+<hr>
+```{r}
+ggplot() +
+  geom_polygon(data = Brazil, aes(x=long, y = lat, group = group), fill="orange", alpha = 0.2) +
+  geom_point(data= Items_InBrazil, aes(x = cus_lng, y = cus_lat, color = customer_state), size = 0.2, alpha = 0.3) +
+  theme_void()
+```
+<hr>
+##### 3.6. 來自聖保羅州之買、賣家物流統計數據
+<hr>
+####### - 進一步運算 Items 中的變數，生成更多衍生變數
+####### - 以每一個 group 為單位，分組的方式是根據買家及賣家所在地區
+####### - 可視每一個 group 為一種 path
+####### - 為了資料的完整性，有篩選掉出現 NA 值的樣本
+<hr>
+```{r}
+
+Logis_table <- Items %>% filter(., customer_state %in% Top6, seller_state %in% Top6, !is.na(payment_value), !is.na(logis_time)) %>%
+  group_by(., customer_state, seller_state) %>% 
+  summarise(
+  noClients = n(),
+  totalRev = sum(payment_value),           # 該 path 訂單總營收
+  avgItemsSold = mean(order_item_id),      # 該 path 訂單平均商品訂購量
+  avgPrice = totalRev/sum(order_item_id),  # 該 path 訂單平均商品單價
+  avgRev = mean(payment_value),            # 該 path 訂單平均營收額
+  avgFreight = mean(freight_value),        # 該 path 訂單平均物流費用
+  avgLogis = mean(logis_time)              # 該 path 訂單平均物流耗時
+  )
+
+```
+<hr>
+####### - 當買家是來自聖保羅州時
+<hr>
+```{r}
+
+Logis_table[Logis_table$customer_state == "SP",]
+
+```
+<hr>
+####### - 當賣家是來自聖保羅州時
+<hr>
+```{r}
+
+Logis_table[Logis_table$seller_state == "SP",]
+
+```
+
+<hr>
+### 【Part IV】購買分析
+<hr>
+##### 0. 將備用資料取出來，初始化 data.frame
+<hr>
+```{r}
+Customers <- C2
+Items <- I2
+Orders <- O2
+Products <- PR2
+Trans <- T2
+
+colnames(Trans)[1] = "product_category_name"
+```
+<hr>
+##### 1. 整理資料
+<hr>
+####### - 轉換商品名稱 (英文)
+####### - 合併資料表
+<hr>
+```{r}
+Products=merge(Products, Trans)
+rm(Trans)
+Products=select(Products,product_id,product_category_name_english)
+
+AllData=merge(Customers,Orders) %>% merge(.,Items) %>% merge(.,Products) 
+AllData=AllData[c(1,2,9,17,19)]
+```
+<hr>
+####### - 轉換時間格式，並且新增「星期幾」的欄位
+<hr>
+```{r}
+AllData$order_purchase_timestamp = as.POSIXct(AllData$order_purchase_timestamp, format="%Y-%m-%d %H:%M:%S")
+AllData=mutate(AllData,weekday=format(AllData$order_purchase_timestamp,'%u'))
+AllData$weekday_class <- ifelse(AllData$weekday %in% c("6", "7"), yes = "weekend", no = "weekday")
+```
+<hr>
+##### 2. 平日、假日購買金額、訂單量比較
+<hr>
+####### - 先統計平日與假日的訂單筆數
+####### - 繪製週一到週日的個別訂單量
+<hr>
+```{r}
+#統計平日與假日的訂單筆數
+table(AllData$weekday) %>% sort(., decreasing = T)
+ggplot(AllData,aes(x=weekday)) + 
+  geom_bar(fill = "#377EB8")
+```
+<hr>
+####### - 繪製平日與假日的訂單量比較圖
+<hr>
+```{r}
+ggplot(AllData,aes(x=weekday_class,fill=weekday)) + 
+  geom_bar()
+```
+<hr>
+####### - 繪製週一到週日的個別購買金額圖
+<hr>
+```{r}
+ggplot(AllData,aes(x=weekday, y=price)) + 
+   geom_bar(stat = "identity" ,fill = "#377EB8")
+```
+<hr>
+##### 3. 熱門購買時段分析
+<hr>
+####### - 統計星期一到星期天每個時段的訂單筆數並繪製成熱圖
+<hr>
+```{r}
+table(format(AllData$order_purchase_timestamp,"%u"), format(AllData$order_purchase_timestamp,"%H")) %>% 
+  as.data.frame.matrix %>% 
+  d3heatmap(F,F,col=colorRamp(c('lightyellow','wheat','orangered')))
+```
+<hr>
+####### - 觀察星期一的熱門購買時段
+<hr>
+```{r}
+tapply(AllData$weekday=="1", format(AllData$order_purchase_timestamp,"%H"), sum ) %>%sort (.,decreasing = T) %>% head(5)
+```
+<hr>
+####### - 觀察星期二的熱門購買時段
+<hr>
+```{r}
+tapply(AllData$weekday=="2", format(AllData$order_purchase_timestamp,"%H"), sum ) %>%sort (.,decreasing = T) %>% head(5)
+```
+<hr>
+##### 4. 商品種類購買分析
+<hr>
+####### - 統計每個小時所販售的商品種類數量
+<hr>
+```{r}
+Time=format(AllData$order_purchase_timestamp,"%H")
+ggplot(AllData,aes(Time ,fill=product_category_name_english)) + 
+geom_bar(position = "fill")
+```
+<hr>
+####### - 以直方圖分析星期一 14:00 與 16:00 的熱銷商品
+<hr>
+```{r}
+H=format(AllData$order_purchase_timestamp,"%H")
+tapply(AllData$weekday=="1" & H=="14" ,AllData$product_category_name_english, sum)%>%sort (.,decreasing = T) %>% head(3)  %>% barplot(main="週一14:00最熱銷的產品",ylim=c(0,160), col="orange", family="STKaiti")
+```
+
+```{r}
+H=format(AllData$order_purchase_timestamp,"%H")
+tapply(AllData$weekday=="1" & H=="16" ,AllData$product_category_name_english, sum)%>%sort (.,decreasing = T) %>% head(3)  %>% barplot(main="週一16:00最熱銷的產品",ylim=c(0,160), col="yellow", family="STKaiti")
+```
+<hr>
+####### - 以直方圖分析星期二 14:00 與 16:00 的熱銷商品
+<hr>
+```{r}
+H=format(AllData$order_purchase_timestamp,"%H")
+tapply(AllData$weekday=="2" & H=="14" ,AllData$product_category_name_english, sum)%>%sort (.,decreasing = T) %>% head(3)  %>% barplot(main="週二14:00最熱銷的產品",ylim=c(0,160), col="orange", family="STKaiti")
+```
+
+```{r}
+H=format(AllData$order_purchase_timestamp,"%H")
+tapply(AllData$weekday=="2" & H=="16" ,AllData$product_category_name_english, sum)%>%sort (.,decreasing = T) %>% head(3)  %>% barplot(main="週二16:00最熱銷的產品",ylim=c(0,160), col="yellow", family="STKaiti")
+```
+
+<hr>
+### 【Part V】下訂時間與品項分析
+<hr>
+##### 0. 將備用資料取出來，初始化 data.frame
+<hr>
+```{r}
+Customers <- C2
+Geolocation <- G2
+Items <- I2
+Payments <- PA2
+Reviews <- R2
+Orders <- O2
+Products <- PR2
+Sellers <- S2
+Trans <- T2
+```
+
+<hr>
+##### 1. 資料整理與 data.frame 合併
+<hr>
+####### - 依照 product_category_name 對照到 Products的data frame 中並合併起來
+####### - 依照 product_id 對照 Items 的 data frame 中並合併起來
+####### - 依照 order_id 對照 new_Items 的 data frame 中並合併起來
+<hr>
+```{r}
+Products = full_join(Products,Trans, by="product_category_name") %>% .[,-2]
+new_Items = full_join(Items,Products, by="product_id") 
+new_Orders = full_join(new_Items,Orders, by="order_id") 
+```
+<hr>
+####### - 在 Total 中加入整理好的時間序列並依照小時為格式
+####### - 把變數的名稱改短
+<hr>
+```{r}
+Total = mutate(new_Orders,time=format(as.POSIXct(new_Orders$order_purchase_timestamp),"%H")) 
+colnames(Total)[colnames(Total)=="product_category_name_english"] <- "categories" 
+```
+<hr>
+####### - 把所有的品項依照前面的名字歸類在一起
+####### - . = 全部字元，* = 0 到無限多個，$ = 字串結尾，\\1 = 前面 pattern 第一個（）的內容
+####### - 並在完成後把 categories 變為類別變數
+<hr>
+```{r}
+Total$categories= gsub("(art).*$", "\\1", Total$categories) %>% 
+                  gsub("(books).*$", "\\1", .) %>%
+                  gsub("(computers).*$", "\\1", .) %>%
+                  gsub("(construction).*$", "\\1", .) %>%
+                  gsub("(costruction).*$", "construction", .) %>%
+                  gsub("(fashio).*$", "fashion", .) %>%
+                  gsub("(food).*$", "\\1", .) %>%
+                  gsub("(furniture).*$", "\\1", .) %>%
+                  gsub("(home).*$", "\\1", .) %>%
+                  gsub("(music).*$", "\\1", .) %>%
+                  gsub("(small_appliances).*$", "\\1", .) 
+
+Total$categories = as.factor(Total$categories) 
+```
+<hr>
+####### - 更改時間資料格式為 POSIXct 格式，把時間獨立出來並取其小時
+<hr>
+```{r}
+time = as.POSIXct(new_Orders$order_purchase_timestamp, format="%H") 
+```
+
+<hr>
+##### 2. 繪製各時段各種類商品訂單數柱狀圖
+<hr>
+####### - 篩選成交量較多的種類
+<hr>
+```{r}
+Total2 =  filter(Total, categories %in% c("bed_bath_table","health_beauty","computers","housewares","furniture",
+                                          "sports_leisure","watches_gifts","garden_tools","telephony","toys","auto"
+                                          ,"cool_stuff")) 
+```
+<hr>
+####### - 篩選過後的成果繪圖
+####### - time 作為 X 軸，categories 作為分類並把分類作為數字來排序
+####### - 把所有的標題命名
+####### - y 軸使用數量來計算
+####### - 把個別的品項的數字呈現出來位置設定在 0.5
+####### - 把 legend 設定在右邊、字體設定為 8、圖示的大小設定為 0.5 並以線條方式呈現、標題字體設定為 8
+####### - 更改 legend 顏色
+<hr>
+```{r}
+ggplot(Total2, aes(x=time ,fill=categories, order = as.numeric(categories))) + 
+  labs(title="Count Vs Hours", x="Hours",caption="Source:Olist",fill="Categories") + 
+  geom_bar(stat="count") + 
+  geom_text(aes(label=..count..),stat="count",position=position_stack(0.5))+ 
+  theme(legend.position = "right", 
+        legend.text=element_text(size=8), 
+        legend.key.size = unit(0.5,"line"), 
+        legend.title = element_text(size=8)) +
+  guides(fill=guide_legend(ncol=1),colour = guide_colourbar(order = 7))
+```
+<hr>
+####### - 另附上未經篩選過的成果繪圖
+####### - time 作為 X 軸，categories 作為分類並把分類作為數字來排序
+####### - 把所有的標題命名
+####### - y 軸使用數量來計算
+####### - 把個別的品項的數字呈現出來位置設定在 0.5
+####### - 把 legend 設定在右邊、字體設定為 8、圖示的大小設定為 0.5 並以線條方式呈現、標題字體設定為 8
+####### - 更改 legend 顏色
+<hr>
+```{r}
+
+ggplot(Total, aes(x=time ,fill=categories, order = as.numeric(categories))) +
+  labs(title="Count Vs Hours", x="Hours",caption="Source:Olist",fill="Categories") +
+  geom_bar(stat="count") + 
+  theme(legend.position = "right", 
+        legend.text=element_text(size=8), 
+        legend.key.size = unit(0.5,"line"), 
+        legend.title = element_text(size=8)) + 
+  guides(fill=guide_legend(ncol=1),colour = guide_colourbar(order = 7)) 
+```
+
+<hr>
+### 【附錄】下單至購買被確認的等待時間對上訂單金額的關係
+<hr>
+##### - 由於效果不顯著因此沒有放進報告之中
+<hr>
+```{r warning=FALSE}
+
+ggplot(UniqueOrders, aes(x = waiting_time, y = Total_payments)) +
+  geom_point(alpha = 0.15)
+```
+
+```{r warning=FALSE}
+ggplot(UniqueOrders, aes(x = waiting_time, y = Total_payments)) +
+  geom_point(alpha = 0.15) +
+  scale_x_continuous(limits = c(0,70)) +
+  scale_y_continuous(limits = c(0,7500))
+```
+
+```{r warning=FALSE}
+ggplot(UniqueOrders, aes(x = waiting_time, y = Total_payments)) +
+  geom_point(alpha = 0.15) +
+  scale_x_continuous(limits = c(0,20)) +
+  scale_y_continuous(limits = c(0,4000))
+```
+
+```{r warning=FALSE}
+ggplot(UniqueOrders, aes(x = waiting_time, y = Total_payments)) +
+  geom_point(alpha = 0.05) +
+  scale_x_continuous(limits = c(0,20)) +
+  scale_y_continuous(limits = c(0,4000))
+```
+
+```{r warning=FALSE}
+UniqueOrders$waiting_time_num <- as.numeric(UniqueOrders$waiting_time)
+
+lm1 <- lm(log(Total_payments) ~ waiting_time_num, data = UniqueOrders)
+summary(lm1)
+
+ggplot(UniqueOrders, aes(x = waiting_time_num)) +
+  geom_histogram(bins = 1000) +
+  scale_x_continuous(limits = c(0,5))
+```
+
+```{r warning=FALSE}
+## 篩選
+
+UniqueOrders_Delete_No_Waits <- UniqueOrders[(UniqueOrders$waiting_time_num >= 1),]
+
+ggplot(UniqueOrders_Delete_No_Waits, aes(x = waiting_time, y = Total_payments)) +
+  geom_point(alpha = 0.05) +
+  scale_x_continuous(limits = c(0,70)) +
+  scale_y_continuous(limits = c(0,7500))
+
+lm2 <- lm(log(Total_payments) ~ waiting_time_num, data = UniqueOrders_Delete_No_Waits)
+summary(lm2)
+
+```
+
+
