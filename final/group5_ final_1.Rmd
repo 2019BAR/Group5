@@ -1,0 +1,595 @@
+---
+title: "期末專題報告"
+author: "2019 RPB - Group 5"
+output:
+  html_document:
+    df_print: paged
+---
+
+<br>
+
+<center>
+
+![](MainVisual.png) 
+
+</center>
+
+#### **Tony Chou 指導**
+
+<br>
+<hr>
+<br>
+
+
+## 一、前置作業
+### 1. 環境設定
+<br>
+
++ 將環境中的變數清除乾淨
++ 設定地區參數為美國
++ 將我們需要的 packages 都 library 進來
+
+<br>
+```{r echo=T, message=F, cache=F, warning=F}
+
+rm(list=ls(all=T))
+Sys.setlocale("LC_ALL","C")
+
+library(dplyr)
+library(ggplot2)
+library(caTools)
+library(Matrix)
+library(slam)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(tidyr)
+library(d3heatmap)
+
+```
+
+<br>
+
+### 2. 讀取資料
+<br>
+
++ Z : 原始資料
++ X : 將 Z 中屬於單日同一筆消費者的交易綁起來
++ A : 將 X 中單個顧客的所有交易綁起來
+
++ 我們取用 tf2.rdata 中的 spl 以及 spl2，並從 tf0.rdata 中取用 A0、X0 及 Z0。
++ 過程中並沒有更動到次序，因此 spl 及 spl2 並不會有資料欄位錯誤的問題。
+
+<br>
+```{r}
+load("data/tf2.rdata")
+rm(A)
+rm(X)
+rm(Z)
+load("data/tf0.rdata")
+
+CopyA <- A0
+CopyX <- X0
+CopyZ <- Z0
+```
+
+<br>
+<hr>
+<br>
+
+## 二、處理資料與變數擴增
+### 1. 資料框 Z 的欄位變更
+<br>
+
++ **加入新變數**
+
++ grossmargin : 為該品項交易的毛利率。
++ grossmargin = ( 商品總價 - 商品總成本 ) / 商品總價
+
+<br>
+```{r}
+Z = subset(CopyZ, date < as.Date("2001-02-01"))
+
+Z$grossmargin = (Z$price-Z$cost)/Z$price
+```
+
+<br>
+
+### 2. 資料框 X 的欄位變更
+<br>
+
++ **加入新變數**
+
++ month : 為該筆交易的月份。
+
++ spec : 單筆交易之商品平均毛利率。
++ spec = 單筆交易總毛利率 / 該筆交易總商品數量
+
++ poorbitch : 單筆交易有多少比例的商品毛利率是負值 ( 公司賠賣 )。
++ poorbitch = 單筆交易商品毛利率 <0 的總數 / 該筆交易總商品數量
+
++ weekday : 為該筆交易的星期數值，並由星期一排到星期日。
+
+<br>
+```{r}
+X = group_by(Z, tid) %>% summarise(
+ date = first(date),  # 交易日期
+ month = months(date),
+ spec = sum(grossmargin*qty)/sum(qty),
+ poorbitch = sum(as.numeric(grossmargin<0)*qty)/sum(qty),
+ weekday = factor(weekdays(date),levels = c("Monday", "Tuesday", "Wednesday", "Thursday","Friday","Saturday","Sunday")),
+ cust = first(cust),  # 顧客 ID
+  age = first(age),    # 顧客 年齡級別
+  area = first(area),  # 顧客 居住區別
+  items = n(),                # 交易項目(總)數
+  pieces = sum(qty),          # 產品(總)件數
+  total = sum(price),         # 交易(總)金額
+  gross = sum(price - cost)   # 毛利
+
+) %>% data.frame  # 88387
+
+X = subset(X, items<=64 & pieces<=98 & total<=11260)
+
+summary(X)
+```
+
+<br>
+
+### 3. 資料框 A 的欄位變更
+<br>
+
++ **加入新變數**
+
++ month1f , month2f , month3f : 為十一月至一月，該顧客各月份的交易次數。
+
++ frise : 邏輯數值。代表十一至一月各月份的交易次數是否為連續上升。
++ frise = ( 十一月至十二月交易次數上升 ) && ( 十二月至一月交易次數上升 )
+
++ weeksum : 單一顧客於週間來店的次數總和。
+
++ weekendsum : 單一顧客於週末來店的次數總和。
+
++ realspec : 單一顧客所有消費之商品毛利率平均值。
++ realspec = 單筆交易 spec * 單筆交易商品總數量 / 交易之總商品數量
+
++ realpoorbitch : 單一顧客所有消費之商品有多少比例毛利率是負值 ( 公司賠賣 )。
++ realpoorbitch = 單筆交易 poorbitch * 單筆交易商品總數量 / 交易之總商品數量
+
+<br>
+```{r}
+
+d0 = max(X$date)
+A = group_by(X, cust) %>% summarise(
+  r = 1 + as.integer(difftime(d0, max(date), units="days")), # recency
+  s = 1 + as.integer(difftime(d0, min(date), units="days")), # seniority
+  f = n(),            # frquency
+  month1f = sum(month == "November"),
+  month2f = sum(month == "December"),
+  month3f = sum(month == "January"),
+  weeksum = sum(weekday!="Saturday" & weekday!="Sunday"),
+  weekendsum = sum(weekday=="Saturday")+sum(weekday=="Sunday"),
+  frise = isTRUE(month2f - month1f > 0 && month3f - month2f > 0),
+  realspec = sum(spec*pieces)/sum(pieces),
+  realpoorbitch = sum(poorbitch*pieces)/sum(pieces),
+  m = mean(total),    # monetary
+  rev = sum(total),   # total revenue contribution
+  raw = sum(gross),   # total gross profit contribution
+  age = first(age),   # age group
+  area = first(area) # area code
+) %>% data.frame    # 28584
+```
+<br>
+
++ 計算 A 中的 amount 以及 buy
+
+<br>
+```{r}
+feb = filter(CopyX, date>= as.Date("2001-02-01")) %>% group_by(cust) %>% summarise(amount = sum(total))  # 16900
+A = merge(A, feb, by="cust", all.x=T)
+A$buy = !is.na(A$amount)
+
+summary(A)
+```
+<br>
+
++ avgbuy : 單一顧客所購買的商品平均單價
++ avgbuy = 所有交易之商品總價 / 所有交易之商品總數量
+
+<br>
+```{r}
+Y = group_by(Z, cust) %>% summarise(
+  avgbuy = sum(price)/sum(qty) )%>% data.frame  
+A$avgbuy = Y$avgbuy[Y$cust %in% A$cust]
+```
+<br>
+
++ W1 - W7 : 單一顧客於週內每天會進行交易的機率。
++ ( 並無更動 Tony 的程式碼 )
+
+<br>
+```{r}
+X = X %>% mutate(wday = format(date, "%w"))
+table(X$wday)
+
+mx = xtabs(~ cust + wday, X)
+dim(mx)
+
+mx[1:5,]
+
+mx = mx / rowSums(mx)
+mx[1:5,]
+
+A = data.frame(rownames(mx), as.matrix.data.frame(mx)) %>% 
+  setNames(c("cust","W1","W2","W3","W4","W5","W6","W7")) %>% 
+  right_join(A, by='cust')
+```
+<br>
+
++ r2 , s2 , f2 : 分別為 r , s , f 的平方項。
++ 之所以會這樣設定是因為我們懷疑 r , s , f 與應變數的關係可能並非線性相關。
+
+<br>
+```{r}
+A$r2 <- A$r^2
+A$s2 <- A$s^2
+A$f2 <- A$f^2
+```
+
+<br>
+
+### 4. 資料框 X 及 Z 核對
+<br>
+
++ 將 A 中不存在的顧客從 X 及 Z 中剔除。
+
+<br>
+```{r}
+X = subset(X, cust %in% A$cust & date < as.Date("2001-02-01")) 
+Z = subset(Z, cust %in% A$cust & date < as.Date("2001-02-01"))
+```
+<br>
+
++ 計算 A2 
+
+<br>
+```{r}
+A2 = subset(A, buy) %>% mutate_at(c("m","rev","amount"), log10)
+``` 
+<br>
+
+### 5. 資料集任意門
+<br>
+
++ 將處理過的資料集存起來，方便下次直接讀取使用
+
+<br>
+```{r}
+save(X, X0, Y, Z, Z0, A, A0, A2, feb, CopyA, CopyX, CopyZ, file = "NewDataSet_V2.RData")
+```
+<br>
+
++ 讀取資料任意門
+
+<br>
+```{r}
+load("NewDataSet_V2.RData")
+```
+
+<br>
+<hr>
+<br>
+
+## 三、資料視覺化
+### 1. 每次交易訂單總額熱圖
+<br>
+
++ 以 area 及 age 分群 , 並過濾掉未知資訊的資料不畫
++ 重點 (a) 106 區每次交易訂單總額明顯較高
++ 重點 (b) 115/221 區每次交易訂單總額明顯較低
++ 重點 (c) 25 歲以下每次交易訂單總額明顯較低
++ 重點 (d) 65 歲以上每次交易訂單總額明顯較低
+
+<br>
+```{r}
+Btemp <- X %>% group_by(area, age) %>% summarise(avggross = mean(total)) %>% spread(., age, avggross) %>% as.data.frame
+
+rownames(Btemp) <- Btemp$area
+Btemp <- Btemp[,-1]
+Btemp[-8,-11] %>% as.data.frame.matrix() %>% d3heatmap(F,F,col=colorRamp(c('lightyellow','wheat','orangered')))
+
+```
+<br>
+
++ 整體平均值
+
+<br>
+```{r}
+mean(X$total)
+```
+<br>
+
++ 以 area 分群平均值
+
+<br>
+```{r}
+X%>% group_by(area) %>% summarise(avg = mean(total))
+```
+<br>
+
++ 以 age 分群平均值
+
+<br>
+```{r}
+X%>% group_by(age) %>% summarise(avg = mean(total))
+```
+<br>
+
+### 2. 購買之商品平均毛利熱圖
+<br>
+
++ 以 area 及 age 分群 , 並過濾掉未知資訊的資料不畫 , 並忽略 others 不看
++ 重點 (a) 106 區購買之商品平均毛利明顯較高
++ 重點 (b) 115/221 區購買之商品平均毛利明顯較低
++ 重點 (c) 25 歲以下購買之商品平均毛利明顯較低
++ 重點 (d) 65 歲以上購買之商品平均毛利明顯較低
+
+<br>
+
+```{r}
+Btemp <- Z %>% group_by(area, age) %>% summarise(avggross = mean(price - cost)) %>% spread(., age, avggross) %>% as.data.frame
+
+rownames(Btemp) <- Btemp$area
+Btemp <- Btemp[,-1]
+Btemp[-8,-11] %>% as.data.frame.matrix() %>% d3heatmap(F,F,col=colorRamp(c('lightyellow','wheat','orangered')))
+
+```
+<br>
+
++ 整體平均值
+
+<br>
+```{r}
+mean(Z$price - Z$cost)
+```
+<br>
+
++ 以 area 分群平均值
+
+<br>
+```{r}
+Z %>% group_by(area) %>% summarise(avg =mean(price - cost))
+```
+<br>
+
++ 以 age 分群平均值
+
+<br>
+
+```{r}
+Z %>% group_by(age) %>% summarise(avg =mean(price - cost))
+```
+
+<br>
+
+### 3. 過去三個月平均來店次數熱圖
+<br>
+
++ 以 area 及 age 分群 , 並過濾掉未知資訊的資料不畫 , 並忽略 others 不看
++ 重點 (a) 106 區過去三個月平均來店次數明顯較低
++ 重點 (b) 115/221 區過去三個月平均來店次數明顯較高
+
+<br>
+
+```{r}
+Ctemp <- A %>% group_by(area, age) %>% summarise(avgfreq = mean(f)) %>% spread(., age, avgfreq) %>% as.data.frame
+
+rownames(Ctemp) <- Ctemp$area
+Ctemp <- Ctemp[,-1]
+Ctemp[-8,-11] %>% as.data.frame.matrix() %>% d3heatmap(F,F,col=colorRamp(c('lightyellow','wheat','orangered')))
+```
+<br>
+
++ 整體平均值
+
+<br>
+
+```{r}
+mean(A$f)
+```
+<br>
+
++ 以 area 分群平均值
+
+<br>
+
+```{r}
+A %>% group_by(area) %>% summarise(avgfreq = mean(f, na.ram =T))
+```
+<br>
+
+### 4. 顧客數量分佈熱圖
+<br>
+
++ 以 area 及 age 分群 , 並過濾掉未知資訊的資料不畫 , 並忽略 others 不看
++ 重點 (a) 115/221 區佔了絕大多數的顧客組成
+
+<br>
+
+```{r}
+
+table(X$area, X$age)[-7, -11] %>% as.data.frame.matrix() %>%
+  d3heatmap(F,F,col=colorRamp(c('lightyellow','wheat','orangered')))
+
+```
+
+<br>
+<hr>
+<br>
+
+## 四、模型建置
+### 1. 分割 Training 及 Testing Dataset
+<br>
+
++ 依照 tf2.rdata 中的 spl , spl2 分割資料。
+
+<br>
+
+```{r}
+
+TR = subset(A, spl)
+TS = subset(A, !spl)
+TR2 = subset(A2, spl2)
+TS2 = subset(A2, !spl2)
+```
+
+<br>
+
+### 2. 模型一、羅吉斯模型 - 手動挑選變數
+<br>
+
++ **手動篩選出模型中較顯著、有影響力之變數**
+
++ AUC = 0.7586
+
+<br>
+
+```{r}
+
+logis_m1_handcraft = glm(buy ~ month1f + month2f + realspec + 
+                 raw + area + avgbuy + r2 + s2 + f2 + log(m) + log(rev), TR[,c(9:24,26:30)], family=binomial()) 
+summary(logis_m1_handcraft)
+logis_m1_handcraft_pred =  predict(logis_m1_handcraft, TS, type="response")
+colAUC(logis_m1_handcraft_pred, TS$buy)
+
+```
+
+<br>
+
+### 3. 模型二、一般線性模型 - 手動挑選變數
+<br>
+
++ **將變數的交互作用、非線性關係以及共線性問題一併考慮後，手動挑選變數。**
+
++ Testing R^2 = 0.2724
+
+<br>
+
+```{r}
+lm_m2_handcraft = lm(amount ~ . - weeksum - weekendsum - area - frise - f2 - r2 - s2 - s + f*avgbuy + realspec*realpoorbitch  , TR2[,c(9:25,27:30)])
+summary(lm_m2_handcraft)                                            
+r2.tr = summary(lm_m2_handcraft)$r.sq
+lm_m2_handcraft_pred <- predict(lm_m2_handcraft, TS2)
+SST = sum((TS2$amount - mean(TR2$amount))^ 2)
+SSE = sum((lm_m2_handcraft_pred -  TS2$amount)^2)
+r2.ts = 1 - (SSE/SST)
+c(r2.tr, r2.ts)
+
+```
+<br>
+
+### 4. 行銷工具效益模擬
+<br>
+
++ 先將預測結果儲存起來
+
+<br>
+
+```{r}
+TS2_new <- TS2
+TS2_new$ProbRetain <- predict(logis_m1_handcraft, TS2, type = "response")
+TS2_new$PredRevenue <- predict(lm_m2_handcraft, TS2)
+```
+
+<br>
+
++ 還原被取 log10 的顧客消費金額
+
+<br>
+
+```{r}
+TS2_new$PredRevenue <- 10^(TS2_new$PredRevenue)
+```
+
+<br>
+
++ **依照 age 分群進行成本效益模擬**
++ 參數 m = 0.15 , a = 20 , b = 15
+
+<br>
+
+```{r}
+
+m = 0.15
+a = 20
+b = 15
+do.call(rbind, lapply(seq(5,40,0.5), function(c){
+  p = m*plogis((10/a)*(c-b))
+  TS2_new %>% mutate(
+    PI = ifelse(ProbRetain<=(1-p), p, 1-ProbRetain) * PredRevenue - c
+  ) %>%
+    group_by(age) %>% summarise(
+      Cost = c,
+      Group.Sz = n(),
+      No.Target = sum(PI>0),
+      AvgROI = mean(PI[PI>0]),
+      TotalROI = sum(PI[PI>0])
+    ) } ) ) %>% 
+  group_by(age) %>% summarise(
+    Perfect_Cost = seq(5,40,0.5)[which.max(TotalROI)],
+    Perfect_ROI = max(AvgROI, na.rm = T)
+  )
+```
+
+<br>
+
++ **依照 area 分群進行成本效益模擬**
++ 參數 m = 0.15 , a = 20 , b = 15
+
+<br>
+
+```{r}
+
+m = 0.15
+a = 20
+b = 15
+do.call(rbind, lapply(seq(5,40,0.5), function(c){
+  p = m*plogis((10/a)*(c-b))
+  TS2_new %>% mutate(
+    PI = ifelse(ProbRetain<=(1-p), p, 1-ProbRetain) * PredRevenue - c
+  ) %>%
+    group_by(area) %>% summarise(
+      Cost = c,
+      Group.Sz = n(),
+      No.Target = sum(PI>0),
+      AvgROI = mean(PI[PI>0]),
+      TotalROI = sum(PI[PI>0])
+    ) } ) ) %>% 
+  group_by(area) %>% summarise(
+    Perfect_Cost = seq(5,40,0.5)[which.max(TotalROI)],
+    Perfect_ROI = max(AvgROI, na.rm = T),
+    Perfect_ROI2 = max(TotalROI, na.rm = T),
+  )
+
+```
+
+<br>
+
++ **最終對於各族群的成本效益分析如下 :**
++ 25 歲以下之小鮮肉 : 每人投入 22.5 元行銷成本, 預期回報 66.6 元, 成本 31,612 元, 回報 93,573 元
++ 65 歲以上之臭灰搭 : 每人投入 22.5 元行銷成本, 預期回報 63.5 元, 成本 27,630 元, 回報 77,978 元
++ 106 區之 A5 和牛 : 每人投入 23.5 元行銷成本, 預期回報 136 元, 成本 18,400 元 , 回報 106,488 元
++ 115/221 區之肉乾 : 每人投入 23.5 元行銷成本, 預期回報 128/132 元 , 成本 232,814/183,253 元, 回報 1,268,096/1,029,336 元
++ ** -> 我們再以此去制定行銷策略、估算其成本**
+
+<br>
+## 附錄、資料來源
+<br>
+
++ 預測模型的建置以及變數為組員林嘉羽自過去 暑期課程 - 商業數據分析 中所改寫而來。
+
+
+<br>
+<hr>
+<br>
+
+
